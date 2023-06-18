@@ -170,7 +170,7 @@ func AccountExists(slug string) bool {
 }
 
 func DecodeJwt(tokenString string) (Account, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	jwt.ParseWithClaims(tokenString, &JWTCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
@@ -180,15 +180,38 @@ func DecodeJwt(tokenString string) (Account, error) {
 		return jwtSigningKey, nil
 	})
 
-	if claims, ok := token.Claims.(*JWTCustomClaims); ok && token.Valid {
-		fmt.Println(claims.Account)
-		var account Account
-		if err := json.Unmarshal([]byte(claims.Account), &account); err != nil {
-			return Account{}, err
-		}
-		return account, nil
-	} else {
-		fmt.Println(err)
+	return Account{}, nil
+	// if claims, ok := token.Claims.(*JWTCustomClaims); ok && token.Valid {
+	// 	// fmt.Println(claims.Account)
+	// 	account := new(Account)
+	// 	if err := json.Unmarshal([]byte(claims.Account), &account); err != nil {
+	// 		return Account{}, err
+	// 	}
+
+	// 	returnAccount := Account{
+	// 		ID:       account.ID,
+	// 		Name:     account.Name,
+	// 		Email:    account.Email,
+	// 		JoinedOn: account.JoinedOn,
+	// 	}
+	// 	return returnAccount, nil
+	// } else {
+	// 	fmt.Println(err)
+	// 	return Account{}, err
+	// }
+}
+
+func zz(accountStr string) (Account, error) {
+	var account Account
+	if err := json.Unmarshal([]byte(accountStr), &account); err != nil {
 		return Account{}, err
 	}
+
+	returnAccount := Account{
+		ID:       account.ID,
+		Name:     account.Name,
+		Email:    account.Email,
+		JoinedOn: account.JoinedOn,
+	}
+	return returnAccount, nil
 }
