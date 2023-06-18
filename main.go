@@ -1,15 +1,19 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/efenstakes/messenger/accounts"
 	"github.com/efenstakes/messenger/messages"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/monitor"
@@ -17,6 +21,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/joho/godotenv"
 	"github.com/kamva/mgm/v3"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	socketio "github.com/googollee/go-socket.io"
@@ -39,6 +44,10 @@ func init() {
 	}
 }
 
+type SocketConnectionQuery struct {
+	Token string `json:"token"`
+}
+
 // Easier to get running with CORS
 var allowOriginFunc = func(r *http.Request) bool {
 	return true
@@ -56,7 +65,7 @@ func main() {
 	// load user from jwt token
 	server.Use(func(c *fiber.Ctx) error {
 		cookie := c.Cookies("MessengerToken")
-		fmt.Println("Cookie: ", cookie)
+		// fmt.Println("Cookie: ", cookie)
 		if cookie != "" {
 			account, err := accounts.DecodeJwt(cookie)
 			if err != nil {
@@ -72,7 +81,7 @@ func main() {
 		return c.Next()
 	})
 
-	server.Get("/", func(c *fiber.Ctx) error {
+	server.Get("/q", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"app":      "Messenger",
 			"runnings": true,
@@ -95,8 +104,10 @@ func main() {
 	// to see performance metrics
 	server.Get("/metrics", monitor.New(monitor.Config{Title: "Messenger"}))
 
-	// create socket server
+	// statics
+	server.Static("/", "/public")
 
+	// create socket server
 	socketServer := socketio.NewServer(&engineio.Options{
 		Transports: []transport.Transport{
 			&polling.Transport{
@@ -108,12 +119,80 @@ func main() {
 		},
 	})
 
+	socketServer.OnConnect("/", func(s socketio.Conn) error {
+		fmt.Println("Got some data")
+		fmt.Println(s.URL().RawQuery)
+
+		var queryData SocketConnectionQuery
+
+		queryString := strings.Split(s.URL().RawQuery, "&")
+
+		for _, query := range queryString {
+			sl := strings.Split(query, "=")
+			if len(sl) < 1 {
+				return errors.New("Invalid query")
+			}
+
+			if sl[0] == "token" {
+				queryData.Token = sl[1]
+			}
+		}
+
+		if queryData.Token == "" {
+			fmt.Println("No token specified")
+			return errors.New("No Token")
+		} else {
+			fmt.Println("token is ", queryData.Token)
+		}
+
+		account, err := accounts.DecodeJwt(queryData.Token)
+		if err != nil {
+			fmt.Println(" in use error ", err)
+			return err
+		} else {
+			fmt.Println("account in use is ", account.Name)
+			s.SetContext(account)
+		}
+
+		s.Join(account.Name)
+		// s.Emit("JoinedRoom", queryData.Name)
+		// server.BroadcastToRoom("/", queryData.Name, "JoinedRoom")
+
+		log.Println("connected:", s.ID())
+		return nil
+	})
+
 	socketServer.OnError("/", func(s socketio.Conn, e error) {
 		fmt.Println("meet error:", e)
 	})
 
 	socketServer.OnDisconnect("/", func(s socketio.Conn, reason string) {
 		fmt.Println("closed", reason)
+	})
+
+	socketServer.OnEvent("/", "chat", func(s socketio.Conn, msgStr string) {
+		var msg messages.Message
+
+		if err := json.Unmarshal([]byte(msgStr), &msg); err != nil {
+			return
+		}
+
+		log.Println("Send Message :", msg.Text, " To:", msg.To)
+
+		id := primitive.NewObjectID()
+		msg.ID = id
+
+		// save it here
+		go func() {
+			messages.SaveMessage(msg)
+		}()
+
+		if ok := socketServer.BroadcastToRoom("/", msg.To, "NewMessage", msgStr); ok {
+			fmt.Println("OK")
+			socketServer.BroadcastToRoom("/", msg.From, "MessageSent", msgStr)
+		} else {
+			fmt.Println("Not OK")
+		}
 	})
 
 	go func() {
@@ -124,7 +203,7 @@ func main() {
 	defer socketServer.Close()
 
 	// listen to socket server
-	// fiber.Get("/socket.io/", socketServer)
+	server.All("/socket.io/", adaptor.HTTPHandlerFunc(socketServer.ServeHTTP))
 
 	port := os.Getenv("PORT")
 	if err := server.Listen(":" + port); err != nil {
