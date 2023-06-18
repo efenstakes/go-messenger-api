@@ -51,6 +51,25 @@ func main() {
 	server.Use(cors.New())
 	server.Use(requestid.New())
 
+	// load user from jwt token
+	server.Use(func(c *fiber.Ctx) error {
+		cookie := c.Cookies("MessengerToken")
+		fmt.Println("Cookie: ", cookie)
+		if cookie != "" {
+			account, err := accounts.DecodeJwt(cookie)
+			if err != nil {
+				fmt.Println(" in use error ", err)
+				c.Locals("account", nil)
+			} else {
+				fmt.Println("account in use is ", account.Name)
+				c.Locals("account", account)
+			}
+		} else {
+			c.Locals("account", nil)
+		}
+		return c.Next()
+	})
+
 	server.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"app":      "Messenger",
