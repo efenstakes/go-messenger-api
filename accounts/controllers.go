@@ -158,6 +158,17 @@ func GetAll(c *fiber.Ctx) error {
 	return c.JSON(accountList)
 }
 
+func AccountExists(slug string) bool {
+	account := new(Account)
+
+	count, err := mgm.Coll(account).CountDocuments(context.TODO(), bson.M{"slug": slug})
+	if err != nil {
+		return false
+	}
+
+	return count > 0
+}
+
 func DecodeJwt(tokenString string) (Account, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
