@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"github.com/efenstakes/messenger/accounts"
+	"github.com/efenstakes/messenger/messages"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -84,6 +86,11 @@ func main() {
 	accountsGroup.Post("/login", accounts.Login)
 	accountsGroup.Get("/:id", accounts.Get)
 	accountsGroup.Get("/", accounts.GetAll)
+
+	// messages
+	messagesGroup := server.Group("/api/messages")
+	messagesGroup.Post("/", messages.Create)
+	messagesGroup.Get("/", messages.GetAll)
 
 	// to see performance metrics
 	server.Get("/metrics", monitor.New(monitor.Config{Title: "Messenger"}))
